@@ -74,7 +74,7 @@ def vendor_pure_package(package: str, dest: Path) -> None:
         if whl:
             with zipfile.ZipFile(whl) as zf:
                 for member in zf.namelist():
-                    if ".dist-info" in member or ".data" in member:
+                    if ".data" in member:
                         continue
                     target = dest / member
                     if member.endswith("/"):
