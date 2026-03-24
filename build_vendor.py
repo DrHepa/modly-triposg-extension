@@ -53,71 +53,18 @@ def run(cmd: list, **kwargs):
 
 
 def vendor_pure_package(package: str, dest: Path) -> None:
-    """Download a pure-Python wheel and extract it into vendor/."""
-    import tarfile as _tarfile
-    from pathlib import PurePosixPath
+    """Install a pure-Python package into vendor/ via pip --target.
 
-    tmp = VENDOR / "_tmp_wheel"
-    tmp.mkdir(parents=True, exist_ok=True)
-    try:
-        run([sys.executable, "-m", "pip", "download",
-             "--no-deps", "--no-binary", ":none:",
-             "--dest", str(tmp), package])
-
-        files = list(tmp.iterdir())
-        if not files:
-            raise RuntimeError(f"pip download produced no files for {package}")
-
-        whl = next((f for f in files if f.suffix == ".whl"), None)
-        tgz = next((f for f in files if f.name.endswith(".tar.gz")), None)
-
-        if whl:
-            with zipfile.ZipFile(whl) as zf:
-                for member in zf.namelist():
-                    if ".data" in member:
-                        continue
-                    target = dest / member
-                    if member.endswith("/"):
-                        target.mkdir(parents=True, exist_ok=True)
-                    else:
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        target.write_bytes(zf.read(member))
-            print(f"  Vendored {package} from wheel.")
-
-        elif tgz:
-            with _tarfile.open(tgz) as tf:
-                pkg_name = None
-                for m in tf.getmembers():
-                    parts = PurePosixPath(m.name).parts
-                    for i, part in enumerate(parts):
-                        if part == "src":
-                            continue
-                        if i > 0 and not part.endswith(".egg-info"):
-                            pkg_name = pkg_name or part
-                    if pkg_name:
-                        break
-
-                for m in tf.getmembers():
-                    parts = PurePosixPath(m.name).parts
-                    try:
-                        idx = list(parts).index(pkg_name)
-                    except (ValueError, TypeError):
-                        continue
-                    rel    = "/".join(parts[idx:])
-                    target = dest / rel
-                    if m.isdir():
-                        target.mkdir(parents=True, exist_ok=True)
-                    elif m.isfile():
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        with tf.extractfile(m) as f:
-                            target.write_bytes(f.read())
-            print(f"  Vendored {package} from source tarball.")
-
-        else:
-            raise RuntimeError(f"No wheel or tarball found for {package}.")
-
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    Using pip --target is simpler and more reliable than manual wheel/tarball
+    extraction: it handles all package layouts (flat, src/, namespace packages)
+    and always includes the .dist-info directory needed by importlib.metadata.
+    """
+    run([sys.executable, "-m", "pip", "install",
+         "--no-deps",
+         "--target", str(dest),
+         "--upgrade",
+         package])
+    print(f"  Vendored {package}.")
 
 
 def vendor_triposg(dest: Path) -> None:
