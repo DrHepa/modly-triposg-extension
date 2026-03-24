@@ -288,8 +288,8 @@ class TripoSGGenerator(BaseGenerator):
                 "type":    "int",
                 "default": 9,
                 "min":     7,
-                "max":     10,
-                "tooltip": "Octree depth for mesh extraction. 9 = 512³ grid, 10 = 1024³ (more detail, much more VRAM). 8 = faster/lower quality.",
+                "max":     9,
+                "tooltip": "Octree depth for mesh extraction. 9 = 512³ grid (recommended). 8 = faster but less detail. 7 = low quality.",
             },
             {
                 "id":      "use_flash_decoder",
