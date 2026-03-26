@@ -3,15 +3,16 @@ Build the vendor/ directory for the TripoSG extension.
 
 Run this script once (with the app's venv active) to populate vendor/.
 The resulting vendor/ folder is committed to the extension repository
-so end users never need to install anything at runtime.
+so end users never need to install anything manually at runtime.
 
 Usage:
     python build_vendor.py
 
 Requirements (must be run from the app's venv):
     - pip (always available)
-    - PyTorch + CUDA (for compiling diso)
-    - C++ build tools (MSVC on Windows, gcc on Linux)
+
+Note: diso is a CUDA-compiled extension that cannot be pre-built for all
+PyTorch versions. It is installed automatically via pip at first load.
 
 Note: peft and scikit-image must be present in the app's venv.
 They have compiled extensions and cannot be vendored as pure Python.
@@ -251,15 +252,6 @@ def main() -> None:
     # 2. TripoSG source
     print("\n[2] Vendoring triposg source...")
     vendor_triposg(VENDOR)
-
-    # 3. diso (CUDA-accelerated mesh extraction)
-    print("\n[3] Building diso (CUDA-accelerated)...")
-    try:
-        build_diso(VENDOR)
-    except Exception as exc:
-        print(f"  ERROR: diso build failed: {exc}")
-        print("  TripoSG requires diso — generation will not work without it.")
-        raise SystemExit(1)
 
     print("\nDone! vendor/ is ready.")
     print("Commit the vendor/ directory to the extension repository.")

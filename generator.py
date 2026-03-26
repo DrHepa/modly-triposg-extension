@@ -4,11 +4,13 @@ TripoSG extension for Modly.
 Reference : https://huggingface.co/VAST-AI/TripoSG
 GitHub    : https://github.com/VAST-AI-Research/TripoSG
 
-All runtime dependencies (omegaconf, antlr4, jaxtyping, typeguard, triposg
-source, diso) are bundled in vendor/ — no pip install, no internet required
-at runtime.
+Pure-Python dependencies (omegaconf, antlr4, jaxtyping, typeguard, triposg
+source) are bundled in vendor/.
 
-To rebuild vendor/:
+diso is a CUDA-compiled extension that must match the user's PyTorch version —
+it is installed automatically via pip on first load.
+
+To rebuild vendor/ (pure-Python part only):
     python build_vendor.py   (run once with the app's venv active)
 """
 import io
@@ -155,6 +157,10 @@ class TripoSGGenerator(BaseGenerator):
                 "Run 'python build_vendor.py' from the extension directory to build it."
             )
 
+        # Ensure diso is installed BEFORE adding vendor/ to sys.path,
+        # so the pip-installed version is not shadowed by a stale vendor/diso/.
+        self._ensure_diso()
+
         vendor_str = str(_VENDOR_DIR)
         if vendor_str not in sys.path:
             sys.path.insert(0, vendor_str)
@@ -166,6 +172,26 @@ class TripoSGGenerator(BaseGenerator):
                 f"[TripoSGGenerator] vendor/ is incomplete: {exc}\n"
                 "Re-run 'python build_vendor.py' to rebuild it."
             ) from exc
+
+    def _ensure_diso(self) -> None:
+        """Install diso via pip if not importable or incompatible with current PyTorch."""
+        try:
+            import diso  # noqa: F401
+            return
+        except (ImportError, OSError):
+            pass
+
+        print("[TripoSGGenerator] diso not found or incompatible, installing via pip...")
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "diso"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                "[TripoSGGenerator] Failed to install diso:\n" + result.stderr
+            )
+        print("[TripoSGGenerator] diso installed successfully.")
 
     # ------------------------------------------------------------------ #
     # Helpers
