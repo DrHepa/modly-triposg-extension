@@ -253,6 +253,15 @@ def main() -> None:
     print("\n[2] Vendoring triposg source...")
     vendor_triposg(VENDOR)
 
+    # 3. diso (CUDA-accelerated mesh extraction)
+    print("\n[3] Building diso (CUDA-accelerated)...")
+    try:
+        build_diso(VENDOR)
+    except Exception as exc:
+        print(f"  ERROR: diso build failed: {exc}")
+        print("  TripoSG requires diso — generation will not work without it.")
+        raise SystemExit(1)
+
     print("\nDone! vendor/ is ready.")
     print("Commit the vendor/ directory to the extension repository.")
     print("End users will never need to install anything.")

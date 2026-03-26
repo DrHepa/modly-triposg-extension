@@ -157,9 +157,10 @@ class TripoSGGenerator(BaseGenerator):
                 "Run 'python build_vendor.py' from the extension directory to build it."
             )
 
-        # Ensure diso is installed BEFORE adding vendor/ to sys.path,
-        # so the pip-installed version is not shadowed by a stale vendor/diso/.
-        self._ensure_diso()
+        # Import torch first so it registers its DLL directory on Windows.
+        # diso's _C.pyd depends on torch_python.dll — without this, Windows
+        # cannot find it even if the path is correct.
+        import torch  # noqa: F401
 
         vendor_str = str(_VENDOR_DIR)
         if vendor_str not in sys.path:
@@ -172,26 +173,6 @@ class TripoSGGenerator(BaseGenerator):
                 f"[TripoSGGenerator] vendor/ is incomplete: {exc}\n"
                 "Re-run 'python build_vendor.py' to rebuild it."
             ) from exc
-
-    def _ensure_diso(self) -> None:
-        """Install diso via pip if not importable or incompatible with current PyTorch."""
-        try:
-            import diso  # noqa: F401
-            return
-        except (ImportError, OSError):
-            pass
-
-        print("[TripoSGGenerator] diso not found or incompatible, installing via pip...")
-        import subprocess
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "diso"],
-            capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                "[TripoSGGenerator] Failed to install diso:\n" + result.stderr
-            )
-        print("[TripoSGGenerator] diso installed successfully.")
 
     # ------------------------------------------------------------------ #
     # Helpers
