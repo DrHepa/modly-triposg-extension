@@ -50,7 +50,7 @@ def install_diso(venv: Path, torch_ver: str, cuda_tag: str) -> None:
     plat    = "win_amd64" if is_win else "linux_x86_64"
 
     # Wheel name: diso_torch{ver}_cu{cuda}-{py}-{py}-{plat}.whl
-    wheel_name = f"diso_torch{torch_ver}_cu{cuda_tag}-{py_tag}-{py_tag}-{plat}.whl"
+    wheel_name = f"diso_torch{torch_ver}_cu{cuda_tag}-0.0.0-{py_tag}-{py_tag}-{plat}.whl"
     wheel_url  = f"{_WHEELS_BASE}/{wheel_name}"
 
     print(f"[setup] Downloading diso wheel: {wheel_name} …")
