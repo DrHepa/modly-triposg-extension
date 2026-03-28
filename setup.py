@@ -18,7 +18,7 @@ import zipfile
 from pathlib import Path
 
 # GitHub release URL for pre-compiled diso wheels
-_WHEELS_BASE = "https://github.com/lightningpixel/modly-triposg-extension/releases/latest/download"
+_WHEELS_BASE = "https://github.com/lightningpixel/modly-test-extension/releases/latest/download"
 _TRIPOSG_ZIP = "https://github.com/VAST-AI-Research/TripoSG/archive/refs/heads/main.zip"
 
 
