@@ -145,7 +145,7 @@ jobs:
           py_tag  = parts[2] if len(parts) >= 5 else "cp311"
           abi_tag = parts[3] if len(parts) >= 5 else "cp311"
           plat    = "win_amd64" if platform.system() == "Windows" else "linux_x86_64"
-          dst_name = f"diso_torch${{ matrix.torch }}_cu${{ matrix.cuda }}-0.0.0-{py_tag}-{abi_tag}-{plat}.whl"
+          dst_name = f"diso_torch${{ matrix.torch }}_cu${{ matrix.cuda }}-{py_tag}-{abi_tag}-{plat}.whl"
           os.rename(src, os.path.join("wheel-out", dst_name))
           print(f"Renamed to: {dst_name}")
 

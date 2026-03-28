@@ -41,32 +41,54 @@ def python_tag(venv: Path) -> str:
 
 def install_diso(venv: Path, torch_ver: str, cuda_tag: str) -> None:
     """
-    Downloads the pre-built diso wheel matching torch+cuda+platform from the
-    GitHub Release and installs it into the venv.
+    Downloads the pre-built diso wheel from GitHub Release and extracts the
+    diso/ package directly into site-packages (bypasses pip wheel validation).
     Falls back to building from source if the wheel is not available.
     """
     is_win  = platform.system() == "Windows"
     py_tag  = python_tag(venv)
     plat    = "win_amd64" if is_win else "linux_x86_64"
+    exe     = venv / ("Scripts/python.exe" if is_win else "bin/python")
 
-    # Wheel name: diso_torch{ver}_cu{cuda}-{py}-{py}-{plat}.whl
-    wheel_name = f"diso_torch{torch_ver}_cu{cuda_tag}-0.0.0-{py_tag}-{py_tag}-{plat}.whl"
+    site_packages = subprocess.check_output(
+        [str(exe), "-c",
+         "import site; print([p for p in site.getsitepackages() if 'site-packages' in p][0])"],
+        text=True,
+    ).strip()
+    diso_dest = Path(site_packages) / "diso"
+
+    if diso_dest.exists():
+        print("[setup] diso already present, skipping.")
+        return
+
+    wheel_name = f"diso_torch{torch_ver}_cu{cuda_tag}-{py_tag}-{py_tag}-{plat}.whl"
     wheel_url  = f"{_WHEELS_BASE}/{wheel_name}"
 
     print(f"[setup] Downloading diso wheel: {wheel_name} …")
     try:
         with urllib.request.urlopen(wheel_url, timeout=60) as resp:
             wheel_data = resp.read()
-        wheel_path = Path(venv).parent / wheel_name
-        wheel_path.write_bytes(wheel_data)
-        pip(venv, "install", str(wheel_path))
-        wheel_path.unlink()
-        print("[setup] diso installed from pre-built wheel.")
+
+        # A wheel is a zip — extract diso/ directly into site-packages.
+        # This avoids pip's dist-info name check on our custom-named wheel.
+        diso_dest.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(io.BytesIO(wheel_data)) as zf:
+            for member in zf.namelist():
+                if not member.startswith("diso/") or ".dist-info" in member:
+                    continue
+                rel    = member[len("diso/"):]
+                target = diso_dest / rel
+                if member.endswith("/"):
+                    target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(zf.read(member))
+        print("[setup] diso extracted from pre-built wheel.")
         return
     except Exception as e:
         print(f"[setup] Pre-built wheel not available ({e}), trying PyPI …")
 
-    # Fallback 1: PyPI (may have matching wheel)
+    # Fallback 1: PyPI
     try:
         pip(venv, "install", "diso")
         print("[setup] diso installed from PyPI.")
