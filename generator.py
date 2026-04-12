@@ -89,6 +89,9 @@ class TripoSGGenerator(BaseGenerator):
         faces           = int(params.get("faces", -1))
         fg_ratio        = float(params.get("foreground_ratio", 0.85))
         use_flash       = params.get("use_flash_decoder", "DiffDMC") == "DiffDMC"
+        if use_flash and not self._has_diso():
+            print("[TripoSGGenerator] DiffDMC unavailable; falling back to Marching Cubes.")
+            use_flash = False
 
         # Preprocessing
         self._report(progress_cb, 5, "Removing background...")
@@ -149,6 +152,32 @@ class TripoSGGenerator(BaseGenerator):
     # Vendor setup
     # ------------------------------------------------------------------ #
 
+    def _has_diso(self) -> bool:
+        try:
+            import diso
+            return not getattr(diso, "__modly_stub__", False)
+        except ImportError:
+            return False
+
+    def _install_diso_stub(self) -> None:
+        import types
+
+        existing = sys.modules.get("diso")
+        if existing is not None and getattr(existing, "__modly_stub__", False):
+            return
+
+        stub = types.ModuleType("diso")
+        stub.__modly_stub__ = True
+
+        class _MissingDiffDMC:
+            def __init__(self, *args, **kwargs):
+                raise RuntimeError(
+                    "[TripoSGGenerator] DiffDMC is unavailable because the optional 'diso' package is not installed for this environment. Use the Marching Cubes decoder instead."
+                )
+
+        stub.DiffDMC = _MissingDiffDMC
+        sys.modules["diso"] = stub
+
     def _setup_vendor(self) -> None:
         # Import torch first so it registers its DLL directory on Windows.
         # diso's _C.pyd depends on torch_python.dll — without this, Windows
@@ -160,6 +189,9 @@ class TripoSGGenerator(BaseGenerator):
         vendor_dir = _EXTENSION_DIR / "vendor"
         if vendor_dir.exists() and str(vendor_dir) not in sys.path:
             sys.path.insert(0, str(vendor_dir))
+
+        if not self._has_diso():
+            self._install_diso_stub()
 
         try:
             from triposg.pipelines.pipeline_triposg import TripoSGPipeline  # noqa: F401

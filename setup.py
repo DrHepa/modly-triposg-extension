@@ -10,6 +10,7 @@ Called by Modly at extension install time with:
 """
 import io
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -17,8 +18,13 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-# GitHub release URL for pre-compiled diso wheels
-_WHEELS_BASE = "https://github.com/lightningpixel/modly-test-extension/releases/latest/download"
+# GitHub release URLs for pre-compiled diso wheels.
+# Try the fork first so future custom wheel builds can live here,
+# then fall back to the original published assets.
+_WHEELS_BASES = [
+    "https://github.com/DrHepa/modly-triposg-extension/releases/latest/download",
+    "https://github.com/lightningpixel/modly-test-extension/releases/latest/download",
+]
 _TRIPOSG_ZIP = "https://github.com/VAST-AI-Research/TripoSG/archive/refs/heads/main.zip"
 
 
@@ -39,15 +45,30 @@ def python_tag(venv: Path) -> str:
     return out
 
 
-def install_diso(venv: Path, torch_ver: str, cuda_tag: str) -> None:
+def platform_tag() -> str:
+    """Returns the custom platform tag used by our release assets."""
+    if platform.system() == "Windows":
+        return "win_amd64"
+
+    machine = platform.machine().lower()
+    if machine in {"x86_64", "amd64"}:
+        return "linux_x86_64"
+    if machine in {"aarch64", "arm64"}:
+        return "linux_aarch64"
+
+    raise RuntimeError(f"Unsupported platform for pre-built diso wheels: {platform.system()} / {machine}")
+
+
+def install_diso(venv: Path, torch_ver: str, cuda_tag: str) -> bool:
     """
     Downloads the pre-built diso wheel from GitHub Release and extracts the
     diso/ package directly into site-packages (bypasses pip wheel validation).
-    Falls back to building from source if the wheel is not available.
+    If no compatible wheel exists, leaves DiffDMC disabled and allows the
+    extension to continue with Marching Cubes.
     """
     is_win  = platform.system() == "Windows"
     py_tag  = python_tag(venv)
-    plat    = "win_amd64" if is_win else "linux_x86_64"
+    plat    = platform_tag()
     exe     = venv / ("Scripts/python.exe" if is_win else "bin/python")
 
     site_packages = subprocess.check_output(
@@ -59,48 +80,58 @@ def install_diso(venv: Path, torch_ver: str, cuda_tag: str) -> None:
 
     if diso_dest.exists():
         print("[setup] diso already present, skipping.")
-        return
+        return True
 
     wheel_name = f"diso_torch{torch_ver}_cu{cuda_tag}-{py_tag}-{py_tag}-{plat}.whl"
-    wheel_url  = f"{_WHEELS_BASE}/{wheel_name}"
 
-    print(f"[setup] Downloading diso wheel: {wheel_name} …")
+    for wheels_base in _WHEELS_BASES:
+        wheel_url = f"{wheels_base}/{wheel_name}"
+        print(f"[setup] Downloading diso wheel: {wheel_name} …")
+        try:
+            with urllib.request.urlopen(wheel_url, timeout=60) as resp:
+                wheel_data = resp.read()
+
+            # A wheel is a zip — extract diso/ directly into site-packages.
+            # This avoids pip's dist-info name check on our custom-named wheel.
+            diso_dest.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(io.BytesIO(wheel_data)) as zf:
+                for member in zf.namelist():
+                    if not member.startswith("diso/") or ".dist-info" in member:
+                        continue
+                    rel    = member[len("diso/"):]
+                    target = diso_dest / rel
+                    if member.endswith("/"):
+                        target.mkdir(parents=True, exist_ok=True)
+                    else:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(zf.read(member))
+            print("[setup] diso extracted from pre-built wheel.")
+            return True
+        except Exception as e:
+            print(f"[setup] Pre-built wheel not available from {wheels_base} ({e}).")
+
+    # Fallback 1: PyPI binary-only install
     try:
-        with urllib.request.urlopen(wheel_url, timeout=60) as resp:
-            wheel_data = resp.read()
-
-        # A wheel is a zip — extract diso/ directly into site-packages.
-        # This avoids pip's dist-info name check on our custom-named wheel.
-        diso_dest.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(io.BytesIO(wheel_data)) as zf:
-            for member in zf.namelist():
-                if not member.startswith("diso/") or ".dist-info" in member:
-                    continue
-                rel    = member[len("diso/"):]
-                target = diso_dest / rel
-                if member.endswith("/"):
-                    target.mkdir(parents=True, exist_ok=True)
-                else:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(zf.read(member))
-        print("[setup] diso extracted from pre-built wheel.")
-        return
-    except Exception as e:
-        print(f"[setup] Pre-built wheel not available ({e}), trying PyPI …")
-
-    # Fallback 1: PyPI
-    try:
-        pip(venv, "install", "diso")
-        print("[setup] diso installed from PyPI.")
-        return
+        pip(venv, "install", "--only-binary=:all:", "diso")
+        print("[setup] diso installed from a PyPI wheel.")
+        return True
     except subprocess.CalledProcessError:
         pass
 
-    # Fallback 2: build from source
+    if os.environ.get("TRIPOSG_BUILD_DISO_FROM_SOURCE") != "1":
+        print(
+            "[setup] WARNING: No compatible diso wheel was found for this environment. "
+            "DiffDMC will be unavailable, but Marching Cubes will still work. "
+            "Set TRIPOSG_BUILD_DISO_FROM_SOURCE=1 to force a source-build attempt."
+        )
+        return False
+
+    # Fallback 2: explicit source build opt-in
     print("[setup] Building diso from source (requires CUDA toolchain) …")
     pip(venv, "install", "setuptools", "wheel", "ninja", "cmake", "pybind11")
     pip(venv, "install", "--no-build-isolation", "git+https://github.com/SarahWeiii/diso.git")
     print("[setup] diso built and installed from source.")
+    return True
 
 
 def install_triposg(venv: Path) -> None:
@@ -211,7 +242,12 @@ def setup(python_exe: str, ext_dir: Path, gpu_sm: int, cuda_version: int = 0) ->
     # rembg
     # ------------------------------------------------------------------ #
     print("[setup] Installing rembg …")
-    if gpu_sm >= 70:
+    machine = platform.machine().lower()
+    if platform.system() == "Linux" and machine in {"aarch64", "arm64"}:
+        # onnxruntime-gpu does not publish compatible wheels for this target,
+        # so rembg[gpu] cannot be resolved reliably here.
+        pip(venv, "install", "rembg", "onnxruntime")
+    elif gpu_sm >= 70:
         pip(venv, "install", "rembg[gpu]")
     else:
         pip(venv, "install", "rembg", "onnxruntime")
