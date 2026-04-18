@@ -312,7 +312,7 @@ jobs:
           import glob
           import os
           import pathlib
-          import shutil
+          import subprocess
           import sys
           import tempfile
           import zipfile
@@ -339,8 +339,16 @@ jobs:
               if not (extract_root / "diso").exists():
                   raise SystemExit("Wheel does not contain extractable diso/ package")
 
-              sys.path.insert(0, str(extract_root))
-              __import__("diso")
+              env = os.environ.copy()
+              env["WHEEL_EXTRACT_ROOT"] = str(extract_root)
+              subprocess.check_call(
+                  [
+                      sys.executable,
+                      "-c",
+                      "import os, sys; sys.path.insert(0, os.environ['WHEEL_EXTRACT_ROOT']); import diso",
+                  ],
+                  env=env,
+              )
               print(f"Successfully imported diso from extracted wheel: {wheel_path.name}")
 
       - uses: actions/upload-artifact@v4
