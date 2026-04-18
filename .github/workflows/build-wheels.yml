@@ -7,6 +7,14 @@ on:
         description: "Release tag (e.g. v1.0.0)"
         required: true
         default: "v1.0.0"
+      publish_release:
+        description: "Publish a GitHub Release after a successful build matrix"
+        required: true
+        type: choice
+        default: "false"
+        options:
+          - "false"
+          - "true"
 
 jobs:
   build:
@@ -342,6 +350,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
+    if: ${{ github.event.inputs.publish_release == 'true' }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
