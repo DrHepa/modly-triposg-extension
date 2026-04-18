@@ -138,6 +138,19 @@ jobs:
         if: matrix.require_preinstalled_cuda == 'true'
         shell: bash
         run: |
+          CUDA_ROOT="/usr/local/cuda-12.8"
+          if [ ! -x "$CUDA_ROOT/bin/nvcc" ]; then
+            echo "Expected CUDA 12.8 at $CUDA_ROOT/bin/nvcc"
+            exit 1
+          fi
+
+          export CUDA_HOME="$CUDA_ROOT"
+          export CUDACXX="$CUDA_ROOT/bin/nvcc"
+          export PATH="$CUDA_ROOT/bin:$PATH"
+          echo "$CUDA_ROOT/bin" >> $GITHUB_PATH
+          echo "CUDA_HOME=$CUDA_ROOT" >> $GITHUB_ENV
+          echo "CUDACXX=$CUDA_ROOT/bin/nvcc" >> $GITHUB_ENV
+
           if ! command -v nvcc >/dev/null 2>&1; then
             exit 1
           fi
@@ -156,10 +169,11 @@ jobs:
               raise SystemExit(f"Expected CUDA 12.8 on self-hosted ARM64 runner, got: {version}")
 
           cuda_home = os.environ.get("CUDA_HOME")
-          if cuda_home:
-              print(f"CUDA_HOME={cuda_home}")
-          else:
-              print("CUDA_HOME not preset; relying on nvcc from PATH")
+          if cuda_home != "/usr/local/cuda-12.8":
+              raise SystemExit(f"Expected CUDA_HOME=/usr/local/cuda-12.8, got: {cuda_home}")
+
+          print(f"CUDA_HOME={cuda_home}")
+          print(f"CUDACXX={os.environ.get('CUDACXX')}")
           PY
 
       - name: Install CUDA 12.8 (Windows — network installer)
