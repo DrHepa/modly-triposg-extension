@@ -59,6 +59,11 @@ def platform_tag() -> str:
     raise RuntimeError(f"Unsupported platform for pre-built diso wheels: {platform.system()} / {machine}")
 
 
+def diso_wheel_name(torch_ver: str, cuda_tag: str, py_tag: str, plat: str) -> str:
+    """Returns the GitHub Release asset name expected for the current environment."""
+    return f"diso_torch{torch_ver}_cu{cuda_tag}-{py_tag}-{py_tag}-{plat}.whl"
+
+
 def install_diso(venv: Path, torch_ver: str, cuda_tag: str) -> bool:
     """
     Downloads the pre-built diso wheel from GitHub Release and extracts the
@@ -82,7 +87,10 @@ def install_diso(venv: Path, torch_ver: str, cuda_tag: str) -> bool:
         print("[setup] diso already present, skipping.")
         return True
 
-    wheel_name = f"diso_torch{torch_ver}_cu{cuda_tag}-{py_tag}-{py_tag}-{plat}.whl"
+    # Contract used by .github/workflows/build-wheels.yml release publication.
+    # Example for Linux ARM64 + Python 3.12:
+    # diso_torch2.7.0_cu128-cp312-cp312-linux_aarch64.whl
+    wheel_name = diso_wheel_name(torch_ver, cuda_tag, py_tag, plat)
 
     for wheels_base in _WHEELS_BASES:
         wheel_url = f"{wheels_base}/{wheel_name}"

@@ -10,15 +10,16 @@ on:
 
 jobs:
   build:
-    name: ${{ matrix.os }} · torch${{ matrix.torch }} · cu${{ matrix.cuda }}
-    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.display_name }} · torch${{ matrix.torch }} · cu${{ matrix.cuda }}
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
 
     strategy:
       fail-fast: false
       matrix:
         include:
           # Windows — CUDA 12.4 (Ampere/Ada/Hopper, SM ≥ 70)
-          - os: windows-latest
+          - display_name: windows-latest
+            runs_on: '["windows-latest"]'
             torch: "2.6.0"
             torchvision: "0.21.0"
             cuda: "124"
@@ -26,9 +27,14 @@ jobs:
             cuda_toolkit: "12.4.1"
             cuda_apt: ""
             arch_list: "7.0;7.5;8.0;8.6;9.0"
+            python_version: "3.11"
+            platform_tag: "win_amd64"
+            require_preinstalled_cuda: "false"
+            expected_wheel: ""
 
           # Windows — CUDA 12.8 (Blackwell, SM ≥ 100)
-          - os: windows-latest
+          - display_name: windows-latest
+            runs_on: '["windows-latest"]'
             torch: "2.7.0"
             torchvision: "0.22.0"
             cuda: "128"
@@ -36,9 +42,14 @@ jobs:
             cuda_toolkit: ""
             cuda_apt: ""
             arch_list: "7.0;7.5;8.0;8.6;9.0;10.0;12.0"
+            python_version: "3.11"
+            platform_tag: "win_amd64"
+            require_preinstalled_cuda: "false"
+            expected_wheel: ""
 
           # Linux — CUDA 12.4
-          - os: ubuntu-22.04
+          - display_name: ubuntu-22.04
+            runs_on: '["ubuntu-22.04"]'
             torch: "2.6.0"
             torchvision: "0.21.0"
             cuda: "124"
@@ -46,9 +57,14 @@ jobs:
             cuda_toolkit: "12.4.1"
             cuda_apt: ""
             arch_list: "7.0;7.5;8.0;8.6;9.0"
+            python_version: "3.11"
+            platform_tag: "linux_x86_64"
+            require_preinstalled_cuda: "false"
+            expected_wheel: ""
 
           # Linux — CUDA 12.8 (Blackwell, SM ≥ 100)
-          - os: ubuntu-22.04
+          - display_name: ubuntu-22.04
+            runs_on: '["ubuntu-22.04"]'
             torch: "2.7.0"
             torchvision: "0.22.0"
             cuda: "128"
@@ -56,9 +72,29 @@ jobs:
             cuda_toolkit: ""
             cuda_apt: "12-8"
             arch_list: "7.0;7.5;8.0;8.6;9.0;10.0;12.0"
+            python_version: "3.11"
+            platform_tag: "linux_x86_64"
+            require_preinstalled_cuda: "false"
+            expected_wheel: ""
+
+          # Linux ARM64 — CUDA 12.8 (self-hosted ARM64 MVP)
+          - display_name: linux-arm64
+            runs_on: '["self-hosted","Linux","ARM64"]'
+            torch: "2.7.0"
+            torchvision: "0.22.0"
+            cuda: "128"
+            torch_index: "https://download.pytorch.org/whl/cu128"
+            cuda_toolkit: ""
+            cuda_apt: ""
+            arch_list: "10.0;12.0"
+            python_version: "3.12"
+            platform_tag: "linux_aarch64"
+            require_preinstalled_cuda: "true"
+            expected_wheel: "diso_torch2.7.0_cu128-cp312-cp312-linux_aarch64.whl"
 
           # Linux — CUDA 11.8
-          - os: ubuntu-22.04
+          - display_name: ubuntu-22.04
+            runs_on: '["ubuntu-22.04"]'
             torch: "2.5.1"
             torchvision: "0.20.1"
             cuda: "118"
@@ -66,13 +102,17 @@ jobs:
             cuda_toolkit: "11.8.0"
             cuda_apt: ""
             arch_list: "6.1;7.0;7.5;8.0;8.6"
+            python_version: "3.11"
+            platform_tag: "linux_x86_64"
+            require_preinstalled_cuda: "false"
+            expected_wheel: ""
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python_version }}
 
       # ── CUDA install: Jimver for known versions, manual for cu128 ─────────────
 
@@ -93,6 +133,34 @@ jobs:
           sudo apt-get install -y cuda-nvcc-${{ matrix.cuda_apt }} cuda-cudart-dev-${{ matrix.cuda_apt }}
           echo "/usr/local/cuda-12.8/bin" >> $GITHUB_PATH
           echo "CUDA_HOME=/usr/local/cuda-12.8" >> $GITHUB_ENV
+
+      - name: Validate preinstalled CUDA 12.8 (Linux ARM64)
+        if: matrix.require_preinstalled_cuda == 'true'
+        shell: bash
+        run: |
+          if ! command -v nvcc >/dev/null 2>&1; then
+            exit 1
+          fi
+          nvcc --version
+          python - <<'PY'
+          import os
+          import shutil
+          import subprocess
+
+          nvcc = shutil.which("nvcc")
+          if not nvcc:
+              raise SystemExit("nvcc not found in PATH")
+
+          version = subprocess.check_output([nvcc, "--version"], text=True)
+          if "release 12.8" not in version:
+              raise SystemExit(f"Expected CUDA 12.8 on self-hosted ARM64 runner, got: {version}")
+
+          cuda_home = os.environ.get("CUDA_HOME")
+          if cuda_home:
+              print(f"CUDA_HOME={cuda_home}")
+          else:
+              print("CUDA_HOME not preset; relying on nvcc from PATH")
+          PY
 
       - name: Install CUDA 12.8 (Windows — network installer)
         if: matrix.cuda == '128' && runner.os == 'Windows'
@@ -178,22 +246,84 @@ jobs:
       - name: Rename wheel with torch+cuda suffix
         shell: python
         run: |
-          import glob, os, platform, sys
+          import glob, os, sys
           wheels = glob.glob("wheel-out/diso*.whl")
           if not wheels:
               sys.exit("No diso wheel found in wheel-out/")
           src = wheels[0]
           parts = os.path.basename(src)[:-4].split("-")
-          py_tag  = parts[2] if len(parts) >= 5 else "cp311"
-          abi_tag = parts[3] if len(parts) >= 5 else "cp311"
-          plat    = "win_amd64" if platform.system() == "Windows" else "linux_x86_64"
+          if len(parts) < 5:
+              raise SystemExit(f"Unexpected wheel filename format: {os.path.basename(src)}")
+          py_tag  = parts[2]
+          abi_tag = parts[3]
+          plat    = "${{ matrix.platform_tag }}"
           dst_name = f"diso_torch${{ matrix.torch }}_cu${{ matrix.cuda }}-{py_tag}-{abi_tag}-{plat}.whl"
           os.rename(src, os.path.join("wheel-out", dst_name))
           print(f"Renamed to: {dst_name}")
 
+      - name: Validate wheel contract
+        shell: python
+        run: |
+          import glob
+          import os
+          import sys
+
+          wheels = glob.glob("wheel-out/*.whl")
+          if len(wheels) != 1:
+              raise SystemExit(f"Expected exactly one wheel in wheel-out/, found {len(wheels)}")
+
+          wheel_name = os.path.basename(wheels[0])
+          if not wheel_name.endswith("-${{ matrix.platform_tag }}.whl"):
+              raise SystemExit(
+                  f"Wheel platform tag mismatch: expected suffix '-${{ matrix.platform_tag }}.whl', got {wheel_name}"
+              )
+
+          expected_wheel = "${{ matrix.expected_wheel }}"
+          if expected_wheel and wheel_name != expected_wheel:
+              raise SystemExit(f"Expected exact ARM64 wheel name {expected_wheel}, got {wheel_name}")
+
+          print(f"Validated wheel contract: {wheel_name}")
+
+      - name: Smoke test extracted diso package
+        shell: python
+        run: |
+          import glob
+          import os
+          import pathlib
+          import shutil
+          import sys
+          import tempfile
+          import zipfile
+
+          wheels = glob.glob("wheel-out/*.whl")
+          if len(wheels) != 1:
+              raise SystemExit(f"Expected exactly one wheel in wheel-out/, found {len(wheels)}")
+
+          wheel_path = pathlib.Path(wheels[0])
+          with tempfile.TemporaryDirectory() as tmp:
+              tmp_path = pathlib.Path(tmp)
+              extract_root = tmp_path / "site-packages"
+              with zipfile.ZipFile(wheel_path) as zf:
+                  for member in zf.namelist():
+                      if not member.startswith("diso/") or ".dist-info" in member:
+                          continue
+                      target = extract_root / member
+                      if member.endswith("/"):
+                          target.mkdir(parents=True, exist_ok=True)
+                      else:
+                          target.parent.mkdir(parents=True, exist_ok=True)
+                          target.write_bytes(zf.read(member))
+
+              if not (extract_root / "diso").exists():
+                  raise SystemExit("Wheel does not contain extractable diso/ package")
+
+              sys.path.insert(0, str(extract_root))
+              __import__("diso")
+              print(f"Successfully imported diso from extracted wheel: {wheel_path.name}")
+
       - uses: actions/upload-artifact@v4
         with:
-          name: diso-torch${{ matrix.torch }}-cu${{ matrix.cuda }}-${{ matrix.os }}
+          name: diso-torch${{ matrix.torch }}-cu${{ matrix.cuda }}-${{ matrix.platform_tag }}
           path: wheel-out/*.whl
 
   release:
@@ -216,4 +346,4 @@ jobs:
           files: wheels/**/*.whl
           body: |
             Pre-compiled diso wheels for TripoSG extension.
-            Naming: `diso_torch{version}_cu{cuda}-{python}-{platform}.whl`
+            Naming: `diso_torch{torch}_cu{cuda}-{python_tag}-{abi_tag}-{platform}.whl`
